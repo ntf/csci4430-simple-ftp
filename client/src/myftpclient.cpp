@@ -8,54 +8,340 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <iostream>
+#include <vector>
+#include <fstream>
+#include <cstring>
+#include <string>
+#include <iterator>
+#include <map>
+#include "myftpclient.h"
 
 using namespace std;
-
+using namespace ftp;
 #define IPADDR "127.0.0.1"
 #define PORT 12345
-struct message_s {
-	unsigned char protocol[6]; /* protocol magic number (6 bytes) */
-	unsigned char type; /* type (1 byte) */
-	unsigned char status; /* status (1 byte) */
-	unsigned int length; /* length (header + payload) (4 bytes) */
-}__attribute__ ((packed));
-/*
- int main() {
- cout << "!!!Hello client!!!" << endl; // prints !!!Hello World!!!
- return 0;
- }*/
 
-int main(int argc, char** argv) {
-	/*if(connect(sd,(struct sockaddr *)&server_addr,sizeof(server_addr))<0){
-	 printf("connection error: %s (Errno:%d)\n",strerror(errno),errno);
-	 exit(0);
-	 }*/
+Client::Client() :
+		ConnectionHandler() {
+
+}
+void Client::start() {
+	//initial stuff
+	this->loop();
+}
+void Client::setSD(int sd) {
+	this->sd = sd;
+}
+void Client::setState(int state) {
+	this->state = state;
+}
+int Client::getState() {
+	return this->state;
+}
+//protocols
+void Client::OPEN_CONN_REQUEST(struct message_s* req,
+		std::vector<string> tokens) {
 	int sd = socket(AF_INET, SOCK_STREAM, 0);
+	this->sd = sd;
 	struct sockaddr_in server_addr;
 	memset(&server_addr, 0, sizeof(server_addr));
 	server_addr.sin_family = AF_INET;
-	server_addr.sin_addr.s_addr = inet_addr(argv[1]);
-	server_addr.sin_port = htons(PORT);
+	server_addr.sin_addr.s_addr = inet_addr(tokens[1].c_str());
+	server_addr.sin_port = htons(atoi(tokens[2].c_str()));
 	if (connect(sd, (struct sockaddr *) &server_addr, sizeof(server_addr))
 			< 0) {
-		printf("connection error: %s (Errno:%d)\n", strerror(errno), errno);
-		exit(0);
+		printf("connection error: %s (Errno:%d)\n", strerror(errno),
+		errno);
 	}
+
+	//Protocols::OPEN_CONN_REQUEST
+	req->type = Protocols::OPEN_CONN_REQUEST;
+	req->length = 12;
+	req->status = 0;
+	this->emit(req, sizeof(struct message_s));
+
+	//Protocols::OPEN_CONN_REPLY
+	struct message_s* res = this->readHeader(Protocols::OPEN_CONN_REPLY);
+	if (res->status == 1) {
+		cout << "Server connection accepted.\n";
+		this->setState(Client::CONNECTED);
+	} else {
+		this->setState(Client::INITIAL);
+		cout << "Server connection failed.\n";
+	}
+
+}
+void Client::AUTH_REQUEST(struct message_s* req, std::vector<string> tokens) {
+	//Protocols::OPEN_CONN_REQUEST
+	req->type = Protocols::AUTH_REQUEST;
+	req->length = 12 + tokens[1].size() + 1 + tokens[2].size();
+	req->status = 0;
+	this->emit(req, sizeof(struct message_s));
+	string payload = tokens[1] + " " + tokens[2];
+	this->emit(payload.c_str(), payload.size());
+	//Protocols::AUTH_REPLY
+	struct message_s* res = this->readHeader(Protocols::AUTH_REPLY);
+	if (res->status == 1) {
+		cout << "Authentication granted.\n";
+		this->username = tokens[1].size();
+		this->setState(Client::AUTHED);
+	} else {
+		this->setState(Client::INITIAL);
+		cout << "ERROR: Authentication rejected. Connection closed.\n";
+		close(this->sd);
+	}
+
+}
+void Client::LIST_REQUEST(struct message_s* req, std::vector<string> tokens) {
+	req->type = Protocols::LIST_REQUEST;
+	req->length = 12;
+	req->status = 0;
+	this->emit(req, sizeof(struct message_s));
+	struct message_s* res = this->readHeader(Protocols::LIST_REPLY);
+	char* payload = NULL;
+	if (res->length > 12) {
+		payload = this->readPayload(res->length - sizeof(struct message_s));
+	}
+
+	if (payload != NULL) {
+		cout << "----- file list start -----\n";
+		cout << payload;
+		cout << "----- file list end -----\n";
+	}
+}
+void Client::GET_REQUEST(struct message_s* req, std::vector<string> tokens) {
+	req->type = Protocols::GET_REQUEST;
+	req->length = 12 + tokens[1].size() + 1;
+	req->status = 0;
+	this->emit(req, sizeof(struct message_s));
+	string payload = tokens[1] + '\0';
+	this->emit(payload.c_str(), payload.size());
+
+	struct message_s* res = this->readHeader(Protocols::GET_REPLY);
+	if (res->status == 1) {
+		struct message_s* fileHeader = this->readHeader(Protocols::FILE_DATA);
+		char* payload = NULL;
+		if (fileHeader->length > 12) {
+			payload = this->readPayload(
+					fileHeader->length - sizeof(struct message_s));
+			//TODO write to file
+		}
+	} else {
+		cout << "GET_REPLY:0.\n";
+	}
+
+}
+void Client::PUT_REQUEST(struct message_s* req, std::vector<string> tokens) {
+	req->type = Protocols::PUT_REQUEST;
+	req->length = 12 + tokens[1].size() + 1;
+	req->status = 0;
+	this->emit(req, sizeof(struct message_s));
+	string payload = tokens[1] + '\0';
+	this->emit(payload.c_str(), payload.size());
+
+	struct message_s* res = this->readHeader(Protocols::PUT_REPLY);
+
+	req->type = Protocols::FILE_DATA;
+	req->length = 12 + 0; //TODO + file size
+	req->status = 0;
+	this->emit(req, sizeof(struct message_s));
+	char* data = " "; //TODO read file
+	this->emit(data, sizeof(data));
+}
+void Client::QUIT_REQUEST(struct message_s* req, std::vector<string> tokens) {
+//quit
+	req->type = Protocols::QUIT_REQUEST;
+	req->length = 12;
+	req->status = 0;
+	this->emit(req, sizeof(struct message_s));
+
+	struct message_s* res = this->readHeader(Protocols::QUIT_REPLY);
+	cout << "Thank you.\n";
+	close(sd);
+	free(res);
+	exit(0);
+}
+void Client::impl(struct message_s* req, std::vector<string> tokens) {
+	if (this->state == Client::INITIAL) {
+		cout << "initial\n";
+		if (tokens.size() == 3 && tokens[0] == "open") {
+			//open ip port
+			OPEN_CONN_REQUEST(req, tokens);
+			return;
+		}
+	} else if (this->state != Client::INITIAL && tokens.size() == 1
+			&& tokens[0] == "quit") {
+		//quit
+		QUIT_REQUEST(req, tokens);
+		return;
+	} else if (this->state == Client::CONNECTED) {
+		if (tokens.size() == 3 && tokens[0] == "auth") {
+			//auth user pass
+			//Protocols::AUTH_REQUEST
+			AUTH_REQUEST(req, tokens);
+			return;
+		}
+	} else if (this->state == Client::AUTHED) {
+		if (tokens.size() == 1 && tokens[0] == "ls") {
+			//ls
+			LIST_REQUEST(req, tokens);
+			return;
+		} else if (tokens.size() == 2) {
+			if (tokens[0] == "get") {
+				GET_REQUEST(req, tokens);
+				return;
+			} else if (tokens[0] == "put") {
+				//put file
+				PUT_REQUEST(req, tokens);
+				return;
+			}
+		}
+	}
+
+	this->log("[ERROR] unexpected command\n");
+}
+void Client::loop() {
+	struct message_s* req = new struct message_s;
+	memcpy(req->protocol, this->protocol, 6);
+	string text;
 	while (1) {
-		char buff[100];
-		memset(buff, 0, 100);
-		scanf("%s", buff);
-		//printf("%s\n",buff);
-		int len;
-		if ((len = send(sd, buff, strlen(buff), 0)) <= 0) {
-			printf("Send Error: %s (Errno:%d)\n", strerror(errno), errno);
-			exit(0);
+		try {
+			//simple cli interface
+
+			getline(std::cin, text);
+			std::vector<string> tokens = explode(text, ' ');
+			//debug start
+			/*for (std::vector<int>::size_type i = 0; i != tokens.size(); i++) {
+			 cout << tokens[i] << "\n";
+			 }
+			 cout << this->state << " " << tokens.size() << "\n";
+			 */
+			//debug end
+			this->impl(req, tokens);
+		} catch (int e) {
+			switch (e) {
+			case Exceptions::PROTOCOL_NOT_MATCHED:
+				this->log("[ERROR] unknown protocol\n");
+				break;
+			case Exceptions::UNEXPECTED_TYPE:
+				this->log("[ERROR] unexpected type\n");
+				break;
+			case Exceptions::SOCKET_RECV_ERROR:
+			case Exceptions::SOCKET_SEND_ERROR:
+			case Exceptions::SOCKET_DISCONNECTED:
+				this->log("socket error, disconnected");
+				this->state = Client::INITIAL;
+				close(this->sd);
+				return;
+			}
 		}
-		if (strcmp(buff, "exit") == 0) {
-			close(sd);
-			break;
-		}
+
 	}
-	return 0;
 }
 
+void ConnectionHandler::loop() {
+
+}
+/*
+ void ConnectionHandler::loop() {
+ printf("test\n");
+ while (1) {
+ try {
+ printf("BEFORE read header\n");
+ struct message_s* msg = this->readHeader();
+ char* payload = NULL;
+ if (msg->length > 12) {
+ payload = this->readPayload(
+ msg->length - sizeof(struct message_s));
+ this->log("read payload");
+ }
+ printf("after read header\n");
+ } catch (int ex) {
+ switch (ex) {
+ case Exceptions::PROTOCOL_NOT_MATCHED:
+ this->log("[ERROR] unknown protocol\n");
+ break;
+ case Exceptions::SOCKET_RECV_ERROR:
+ case Exceptions::SOCKET_SEND_ERROR:
+ case Exceptions::SOCKET_DISCONNECTED:
+ this->log("disconnected");
+ close(this->sd);
+ return;
+ }
+ }
+ }
+ //msg.protocol = new unsigned char[6] { 0xe3, 'm', 'y', 'f', 't', 'p' };
+ //exit(0);
+ while (1) {
+ char buff[100];
+ int len;
+ printf("BEFORE RECV\n");
+ if ((len = recv(sd, buff, sizeof(buff), 0)) <= 0) {
+ //may be client shutdown or lost connection
+ printf("receive error: %s (Errno:%d)\n", strerror(errno), errno);
+ exit(0);
+ }
+
+ printf("AFTER RECV\n");
+ buff[len] = '\0';
+ printf("RECEIVED INFO: ");
+ if (strlen(buff) != 0)
+ printf("%s\n", buff);
+ if (strcmp("exit", buff) == 0) {
+ close(sd);
+ return;
+ break;
+ }
+ }
+ }
+ */
+
+int main(int argc, char** argv) {
+	Client c;
+	c.start();
+	/*
+	 int sd = socket(AF_INET, SOCK_STREAM, 0);
+	 struct sockaddr_in server_addr;
+	 memset(&server_addr, 0, sizeof(server_addr));
+	 server_addr.sin_family = AF_INET;
+	 server_addr.sin_addr.s_addr = inet_addr(argv[1]);
+	 server_addr.sin_port = htons(PORT);
+	 if (connect(sd, (struct sockaddr *) &server_addr, sizeof(server_addr))
+	 < 0) {
+	 printf("connection error: %s (Errno:%d)\n", strerror(errno), errno);
+	 exit(0);
+	 }
+	 unsigned char* x = new unsigned char[6] { 0xe3, 'm', 'y', 'f', 't', 'p' };
+	 int counter = 0;
+	 while (1) {
+	 char buff[100];
+	 memset(buff, 0, 100);
+	 struct message_s msg;
+	 scanf("%s", buff);
+
+	 memcpy(&msg.protocol, x, 6);
+	 msg.length = 12 + 4;
+	 msg.status = counter++;
+	 msg.type = 0x00;
+	 printf("set buffer\n");
+	 memcpy(buff, &msg, sizeof(struct message_s));
+	 buff[12] = 'w';
+	 buff[13] = 't';
+	 buff[14] = 'f';
+	 buff[15] = '\0';
+	 //scanf("%s", buff);
+	 //printf("%s\n",buff);
+	 int len;
+	 int send_len = msg.length; //strlen(buff)
+	 if ((len = send(sd, buff, send_len, 0)) <= 0) {
+	 printf("Send Error: %s (Errno:%d)\n", strerror(errno), errno);
+	 exit(0);
+	 }
+	 if (strcmp(buff, "exit") == 0) {
+	 close(sd);
+	 break;
+	 }
+	 }
+	 */
+	return 0;
+}

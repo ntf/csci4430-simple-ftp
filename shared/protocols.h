@@ -1,5 +1,10 @@
 #ifndef FTP_PROTOCOLS
 #define FTP_PROTOCOLS
+#include <errno.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 struct message_s {
 	unsigned char protocol[6]; /* protocol magic number (6 bytes) */
 	unsigned char type; /* type (1 byte) */
@@ -7,21 +12,39 @@ struct message_s {
 	unsigned int length; /* length (header + payload) (4 bytes) */
 }__attribute__ ((packed));
 
+std::vector<std::string> explode(std::string const & s, char delim);
 namespace ftp {
 
 class ConnectionHandler {
 	int sd;
 	struct sockaddr_in addr;
-	char buff[1024];
-	int state = 0;
+	char temp[1024];
+	unsigned char state;
+	unsigned char* protocol;
 public:
+	static const unsigned char INITIAL = 0x01;
+	static const unsigned char CONNECTED = 0x02;
+	static const unsigned char AUTHED = 0x03;
+
+	char buff[1024];
 	ConnectionHandler(int sd, struct sockaddr_in address);
-	void loop();
-	int send(const void* buff, size_t len);
+	void virtual loop();
+	int emit(const void* buff, size_t len);
 	int receive(void* buff, size_t len);
-	message_s readHeader();
+	message_s* readHeader();
+	char* readPayload(size_t len);
+	void log(const char* str);
 };
 
+class Exceptions {
+public:
+	static const int PROTOCOL_NOT_MATCHED = 0x11;
+	static const int PROTOCOL_INVALID_SIZE = 0x12;
+	static const int ACCESS_DENIED = 0x21;
+	static const int SOCKET_DISCONNECTED = 0x31;
+	static const int SOCKET_RECV_ERROR = 0x32;
+	static const int SOCKET_SEND_ERROR = 0x33;
+};
 class Protocols {
 public:
 	static const unsigned char OPEN_CONN_REQUEST = 0xA1;
@@ -43,7 +66,7 @@ class OutgoingMessage {
 public:
 	void virtual writeHeader(ConnectionHandler* sock);
 	void virtual writePayload(ConnectionHandler* sock);
-	virtual ~OutgoingMessage();
+//	virtual ~OutgoingMessage();
 };
 
 class IncomingMessage {
@@ -53,7 +76,7 @@ public:
 	IncomingMessage(ConnectionHandler* sock, message_s* header);
 	void virtual impl();
 	void dispatch(OutgoingMessage* msg);
-	virtual ~IncomingMessage();
+//	virtual ~IncomingMessage();
 };
 }
 #endif
