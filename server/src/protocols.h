@@ -49,6 +49,9 @@ public:
 	static const int SOCKET_DISCONNECTED = 0x31;
 	static const int SOCKET_RECV_ERROR = 0x32;
 	static const int SOCKET_SEND_ERROR = 0x33;
+
+	static const int INTERNAL_ERROR = 0x40;
+	static const int IO_ERROR = 0x41;
 };
 class Protocols {
 public:

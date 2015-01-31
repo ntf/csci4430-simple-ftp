@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <iostream>
@@ -111,20 +112,24 @@ void Client::LIST_REQUEST(struct message_s* req, std::vector<string> tokens) {
 }
 void Client::GET_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	req->type = Protocols::GET_REQUEST;
-	req->length = 12 + tokens[1].size() + 1;
+	const char* payload = tokens[1].c_str();
+	req->length = 12 + strlen(payload) + 1;
 	req->status = 0;
+	cout << req->length << "\n";
 	this->emit(req, sizeof(struct message_s));
-	string payload = tokens[1] + '\0';
-	this->emit(payload.c_str(), payload.size());
+	this->emit(payload, strlen(payload) + 1);
 
 	struct message_s* res = this->readHeader(Protocols::GET_REPLY);
 	if (res->status == 1) {
 		struct message_s* fileHeader = this->readHeader(Protocols::FILE_DATA);
-		char* payload = NULL;
 		if (fileHeader->length > 12) {
-			payload = this->readPayload(
+			char* data = this->readPayload(
 					fileHeader->length - sizeof(struct message_s));
 			//TODO write to file
+			ofstream outFile(tokens[1].c_str());
+			outFile.write(data, fileHeader->length - 12);
+			cout << "write " << fileHeader->length - 12 << "bytes to "
+					<< tokens[1] << "\n";
 		}
 	} else {
 		cout << "GET_REPLY:0.\n";
@@ -132,21 +137,55 @@ void Client::GET_REQUEST(struct message_s* req, std::vector<string> tokens) {
 
 }
 void Client::PUT_REQUEST(struct message_s* req, std::vector<string> tokens) {
+	const char* payload = tokens[1].c_str();
+	char* repository, *resolved_path;
+	repository = realpath("./", NULL);
+	resolved_path = realpath(string(string("./") + string(payload)).c_str(),
+	NULL);
+	if (resolved_path == NULL) {
+		this->log("file not reachable");
+		return;
+	}
+	cout << repository << " " << resolved_path << "\n";
+	//check if the target file inside current working directory
+	if (strncmp(resolved_path, repository, strlen(repository)) != 0) {
+		this->log("outside of current working directory");
+		return;
+	}
+
+	ifstream inFile(resolved_path, ios::binary | ios::in);
+
+	//check if input file really exists and accessible
+	if (!inFile.good()) {
+		this->log("failed to open the file or file doesn't exists.");
+		return;
+	}
+
 	req->type = Protocols::PUT_REQUEST;
-	req->length = 12 + tokens[1].size() + 1;
+	req->length = 12 + strlen(payload) + 1;
 	req->status = 0;
 	this->emit(req, sizeof(struct message_s));
-	string payload = tokens[1] + '\0';
-	this->emit(payload.c_str(), payload.size());
+
+	this->emit(payload, strlen(payload) + 1);
 
 	struct message_s* res = this->readHeader(Protocols::PUT_REPLY);
 
 	req->type = Protocols::FILE_DATA;
-	req->length = 12 + 0; //TODO + file size
-	req->status = 0;
+	struct stat st;
+	stat(resolved_path, &st);
+	req->length = 12 + st.st_size;
+	req->status = 1;
 	this->emit(req, sizeof(struct message_s));
-	char* data = " "; //TODO read file
-	this->emit(data, sizeof(data));
+
+	do {
+		inFile.read((char*) this->buff, sizeof(buff));
+		if (inFile.gcount() > 0) {
+			this->emit(this->buff, inFile.gcount());
+		}
+		cout << inFile.gcount() << "\n";
+	} while (inFile.gcount() > 0);
+	inFile.close();
+
 }
 void Client::QUIT_REQUEST(struct message_s* req, std::vector<string> tokens) {
 //quit
@@ -163,7 +202,7 @@ void Client::QUIT_REQUEST(struct message_s* req, std::vector<string> tokens) {
 }
 void Client::impl(struct message_s* req, std::vector<string> tokens) {
 	if (this->state == Client::INITIAL) {
-		cout << "initial\n";
+		//cout << "initial\n";
 		if (tokens.size() == 3 && tokens[0] == "open") {
 			//open ip port
 			OPEN_CONN_REQUEST(req, tokens);
@@ -207,7 +246,7 @@ void Client::loop() {
 	while (1) {
 		try {
 			//simple cli interface
-
+			cout << "client> ";
 			getline(std::cin, text);
 			std::vector<string> tokens = explode(text, ' ');
 			//debug start

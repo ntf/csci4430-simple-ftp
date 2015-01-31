@@ -5,8 +5,11 @@
 #include <errno.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+#include <dirent.h>
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -118,6 +121,7 @@ void ConnectionHandler::loop() {
 						req->length - sizeof(struct message_s));
 				//this->log("read payload");
 			}
+			this->log(payload);
 			//printf("after read header\n");
 
 			switch (req->type) {
@@ -151,10 +155,98 @@ void ConnectionHandler::loop() {
 				}
 				break;
 			case Protocols::LIST_REQUEST:
+				if (this->state == ConnectionHandler::AUTHED) {
+					DIR *dir;
+					string data;
+					struct dirent *ent;
+					if ((dir = opendir("filedir/")) != NULL) {
+						/* print all the files and directories within directory */
+						while ((ent = readdir(dir)) != NULL) {
+							string fileName = string(ent->d_name);
+							if (fileName != "." && fileName != "..") {
+								data += fileName + "\n";
+								printf("%s\n", ent->d_name);
+							}
+						}
+						closedir(dir);
+					} else {
+						/* could not open directory */
+						perror("");
+						throw Exceptions::IO_ERROR;
+					}
+
+					res->type = Protocols::LIST_REPLY;
+					res->length = 12 + data.size() + 1;
+					res->status = 0;
+					this->emit(res, sizeof(struct message_s));
+					this->emit(data.c_str(), data.size() + 1);
+				}
 				break;
 			case Protocols::GET_REQUEST:
+				if (this->state == ConnectionHandler::AUTHED) {
+					char* repository, *resolved_path;
+					repository = realpath("filedir/", NULL);
+					resolved_path =
+							realpath(
+									string(string("filedir/") + string(payload)).c_str(),
+									NULL);
+					cout << repository << " " << resolved_path << "\n";
+
+					res->type = Protocols::GET_REPLY;
+					res->length = 12;
+					if (strncmp(resolved_path, repository, strlen(repository))
+							== 0) {
+						res->status = 1;
+					} else {
+						res->status = 0;
+					}
+					this->emit(res, sizeof(struct message_s));
+
+					if (res->status == 1) {
+						res->type = Protocols::FILE_DATA;
+						struct stat st;
+						stat(resolved_path, &st);
+						res->length = 12 + st.st_size;
+						res->status = 1;
+						this->emit(res, sizeof(struct message_s));
+						ifstream inFile(resolved_path, ios::binary | ios::in);
+						do {
+							inFile.read((char*) this->buff, sizeof(buff));
+							if (inFile.gcount() > 0) {
+								this->emit(this->buff, inFile.gcount());
+							}
+							cout << inFile.gcount() << "\n";
+						} while (inFile.gcount() > 0);
+
+						inFile.close();
+					}
+					//this->emit(data.c_str(), data.size());
+				}
 				break;
 			case Protocols::PUT_REQUEST:
+
+				if (this->state == ConnectionHandler::AUTHED) {
+					string putFile = string(realpath(string("filedir/").c_str(),
+					NULL)) +"/"+ string(payload);
+
+					res->type = Protocols::PUT_REPLY;
+					res->length = 12;
+					res->status = 1;
+					this->emit(res, sizeof(struct message_s));
+
+					struct message_s* file_data = this->readHeader(
+							Protocols::FILE_DATA);
+					if (file_data->length > 12) {
+						char* data = this->readPayload(
+								file_data->length - sizeof(struct message_s));
+
+						ofstream outFile(putFile.c_str());
+						outFile.write(data, file_data->length - 12);
+						cout << "write " << file_data->length - 12
+								<< "bytes to " << putFile << "\n";
+					}
+				}
+
 				break;
 			case Protocols::QUIT_REQUEST:
 				res->type = Protocols::QUIT_REPLY;
