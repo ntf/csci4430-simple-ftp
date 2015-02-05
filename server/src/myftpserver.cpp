@@ -227,7 +227,7 @@ void ConnectionHandler::loop() {
 
 				if (this->state == ConnectionHandler::AUTHED) {
 					string putFile = string(realpath(string("filedir/").c_str(),
-					NULL)) +"/"+ string(payload);
+					NULL)) + "/" + string(payload);
 
 					res->type = Protocols::PUT_REPLY;
 					res->length = 12;
@@ -236,15 +236,18 @@ void ConnectionHandler::loop() {
 
 					struct message_s* file_data = this->readHeader(
 							Protocols::FILE_DATA);
+					ofstream outFile(putFile.c_str());
 					if (file_data->length > 12) {
 						char* data = this->readPayload(
 								file_data->length - sizeof(struct message_s));
-
-						ofstream outFile(putFile.c_str());
 						outFile.write(data, file_data->length - 12);
-						cout << "write " << file_data->length - 12
-								<< "bytes to " << putFile << "\n";
+					} else {
+						outFile.write(NULL, 0);
 					}
+
+					cout << "write " << file_data->length - 12 << "bytes to "
+							<< putFile << "\n";
+					outFile.close();
 				}
 
 				break;

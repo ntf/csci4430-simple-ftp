@@ -122,15 +122,19 @@ void Client::GET_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	struct message_s* res = this->readHeader(Protocols::GET_REPLY);
 	if (res->status == 1) {
 		struct message_s* fileHeader = this->readHeader(Protocols::FILE_DATA);
+		ofstream outFile(tokens[1].c_str());
 		if (fileHeader->length > 12) {
 			char* data = this->readPayload(
 					fileHeader->length - sizeof(struct message_s));
-			//TODO write to file
-			ofstream outFile(tokens[1].c_str());
 			outFile.write(data, fileHeader->length - 12);
-			cout << "write " << fileHeader->length - 12 << "bytes to "
-					<< tokens[1] << "\n";
+		} else {
+			outFile.write(NULL,0);
 		}
+
+		outFile.close();
+		cout << "write " << fileHeader->length - 12 << "bytes to " << tokens[1]
+				<< "\n";
+
 	} else {
 		cout << "GET_REPLY:0.\n";
 	}
@@ -246,7 +250,7 @@ void Client::loop() {
 	while (1) {
 		try {
 			//simple cli interface
-			cout << "client> ";
+			cout << "Client> ";
 			getline(std::cin, text);
 			std::vector<string> tokens = explode(text, ' ');
 			//debug start
