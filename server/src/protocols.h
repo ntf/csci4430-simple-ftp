@@ -15,6 +15,7 @@ struct message_s {
 std::vector<std::string> explode(std::string const & s, char delim);
 namespace ftp {
 
+class Server;
 class ConnectionHandler {
 
 protected:
@@ -23,6 +24,7 @@ protected:
 	char temp[1024];
 	unsigned char state;
 	unsigned char* protocol;
+	Server* server;
 public:
 	static const unsigned char INITIAL = 0x01;
 	static const unsigned char CONNECTED = 0x02;
@@ -32,11 +34,14 @@ public:
 	ConnectionHandler(int sd, struct sockaddr_in address);
 	ConnectionHandler();
 	void virtual loop();
+	void terminate();
 	int emit(const void* buff, size_t len);
 	int receive(void* buff, size_t len);
 	message_s* readHeader(unsigned char expected);
+	void setServer(Server* server);
 	char* readPayload(size_t len);
 	void log(const char* str);
+
 };
 
 class Exceptions {

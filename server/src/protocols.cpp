@@ -1,5 +1,6 @@
 #include <iostream>
 #include <stdio.h>
+#include <unistd.h>
 #include <string.h>
 #include <exception>
 #include <string>
@@ -25,6 +26,10 @@ ConnectionHandler::ConnectionHandler(int sd, struct sockaddr_in address) {
 void ConnectionHandler::log(const char* str) {
 	printf("[%d][%s:%d]%s\n", this->sd, inet_ntoa(this->addr.sin_addr),
 			this->addr.sin_port, str);
+}
+
+void ConnectionHandler::setServer(Server* server) {
+	this->server = server;
 }
 
 int ConnectionHandler::receive(void* b, size_t len) {
@@ -81,6 +86,12 @@ char* ConnectionHandler::readPayload(size_t len) {
 	return buff;
 }
 
+void ConnectionHandler::terminate() {
+	if (this->sd != -1) {
+		close(this->sd);
+		this->sd = -1;
+	}
+}
 IncomingMessage::IncomingMessage(ConnectionHandler * sock, message_s * header) {
 	this->socket = sock;
 	this->header = header;

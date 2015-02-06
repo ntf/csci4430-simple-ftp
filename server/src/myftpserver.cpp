@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-
+#include <pthread.h>
 #include <dirent.h>
 #include <iostream>
 #include <vector>
@@ -22,6 +22,7 @@ using namespace ftp;
 # define PORT 12345
 
 Server* instance;
+
 Server::Server(int port) {
 	this->port = port;
 	this->sd = -1;
@@ -78,6 +79,24 @@ void Server::start() {
 
 }
 
+void connection_terminate_thread(void* connection) {
+	struct ConnectionThread* conn = ((struct ConnectionThread*) connection);
+	cout << "(" << conn->thread << ") terminated \n";
+	conn->socket->terminate();
+}
+/**
+ * helper function for new thread
+ */
+void* connection_new_thread(void* connection) {
+	pthread_cleanup_push(connection_terminate_thread,connection);
+		struct ConnectionThread* conn = ((struct ConnectionThread*) connection);
+		//cout << "new thread started\n";
+		cout << "new thread started (" << conn->thread << ")\n";
+		conn->socket->loop();
+
+		pthread_cleanup_pop(1);
+}
+
 void Server::loop() {
 	while (1) {
 		int client_sd;
@@ -93,13 +112,18 @@ void Server::loop() {
 
 			printf("[FTP] new connection from %s:%d\n",
 					inet_ntoa(client_addr.sin_addr), client_addr.sin_port);
-			ConnectionHandler* handler = new ConnectionHandler(client_sd,
-					client_addr);
 
-			this->sockets.push_back(handler);
-			handler->loop();
-			printf("handler end\n");
-			//	return;
+			struct ConnectionThread* connection = new struct ConnectionThread;
+			connection->socket = new ConnectionHandler(client_sd, client_addr);
+			connection->socket->setServer(this);
+			//	pthread_create(&connection->thread, NULL,connection_new_thread, NULL);
+			pthread_attr_t attr;
+			pthread_attr_init(&attr);
+			pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+			pthread_create(&connection->thread, &attr, connection_new_thread,
+					(void *) connection);
+			this->sockets.push_back(connection);
+
 		}
 		printf("AFTER ACCEPT\n");
 	}
@@ -259,7 +283,7 @@ void ConnectionHandler::loop() {
 						inet_ntoa(this->addr.sin_addr), this->addr.sin_port);
 				this->emit(res, sizeof(struct message_s));
 				this->state = ConnectionHandler::INITIAL;
-				close(this->sd);
+				this->terminate();
 				return;
 				break;
 			}
@@ -273,7 +297,7 @@ void ConnectionHandler::loop() {
 			case Exceptions::SOCKET_SEND_ERROR:
 			case Exceptions::SOCKET_DISCONNECTED:
 				this->log("disconnected");
-				close(this->sd);
+				this->terminate();
 				return;
 			}
 		}

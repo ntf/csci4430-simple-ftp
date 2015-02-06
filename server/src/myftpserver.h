@@ -2,19 +2,22 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <pthread.h>
 //struct message_s;
 
 namespace ftp {
 
 //class ConnectionHandler;
-
+struct ConnectionThread {
+	pthread_t thread;
+	ConnectionHandler* socket;
+};
 class Server {
 	int sd;
 	int port;
 	int connQueue;
 	struct sockaddr_in serverAddress;
-
-	std::vector<ConnectionHandler*> sockets;
+	std::vector<ConnectionThread*> sockets;
 
 public:
 	std::map<std::string, std::string> credentials;
