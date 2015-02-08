@@ -75,11 +75,12 @@ void Client::OPEN_CONN_REQUEST(struct message_s* req,
 void Client::AUTH_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	//Protocols::OPEN_CONN_REQUEST
 	req->type = Protocols::AUTH_REQUEST;
-	req->length = 12 + tokens[1].size() + 1 + tokens[2].size();
+	const char* payload = (tokens[1] + " " + tokens[2]).c_str();
+	req->length = 12 + strlen(payload) + 1;
 	req->status = 0;
 	this->emit(req, sizeof(struct message_s));
-	string payload = tokens[1] + " " + tokens[2];
-	this->emit(payload.c_str(), payload.size());
+
+	this->emit(payload, strlen(payload) + 1);
 	//Protocols::AUTH_REPLY
 	struct message_s* res = this->readHeader(Protocols::AUTH_REPLY);
 	if (res->status == 1) {
@@ -104,11 +105,12 @@ void Client::LIST_REQUEST(struct message_s* req, std::vector<string> tokens) {
 		payload = this->readPayload(res->length - sizeof(struct message_s));
 	}
 
+	cout << "----- file list start -----\n";
 	if (payload != NULL) {
-		cout << "----- file list start -----\n";
 		cout << payload;
-		cout << "----- file list end -----\n";
 	}
+	cout << "----- file list end -----\n";
+
 }
 void Client::GET_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	req->type = Protocols::GET_REQUEST;
@@ -124,11 +126,25 @@ void Client::GET_REQUEST(struct message_s* req, std::vector<string> tokens) {
 		struct message_s* fileHeader = this->readHeader(Protocols::FILE_DATA);
 		ofstream outFile(tokens[1].c_str());
 		if (fileHeader->length > 12) {
-			char* data = this->readPayload(
-					fileHeader->length - sizeof(struct message_s));
-			outFile.write(data, fileHeader->length - 12);
+			int remains = fileHeader->length - 12;
+			int total = remains;
+			int current = 0;
+			int percent = 0;
+			while (remains > 0) {
+				int size = this->receive(this->buff,
+						remains < sizeof(this->buff) ?
+								remains : sizeof(this->buff));
+				outFile.write(this->buff, size);
+				remains -= size;
+				current = total - remains;
+				if ((int) (((float) current / total) * 100.0) > percent) {
+					cout << current << "/" << total << "(" << percent << "%)\n";
+				}
+				percent = ((float) current / total) * 100.0;
+
+			}
 		} else {
-			outFile.write(NULL,0);
+			outFile.write(NULL, 0);
 		}
 
 		outFile.close();
@@ -146,11 +162,11 @@ void Client::PUT_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	repository = realpath("./", NULL);
 	resolved_path = realpath(string(string("./") + string(payload)).c_str(),
 	NULL);
-	if (resolved_path == NULL) {
+	if (resolved_path == NULL || repository == NULL) {
 		this->log("file not reachable");
 		return;
 	}
-	cout << repository << " " << resolved_path << "\n";
+	//cout << repository << " " << resolved_path << "\n";
 	//check if the target file inside current working directory
 	if (strncmp(resolved_path, repository, strlen(repository)) != 0) {
 		this->log("outside of current working directory");
@@ -181,12 +197,21 @@ void Client::PUT_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	req->status = 1;
 	this->emit(req, sizeof(struct message_s));
 
+	int total = st.st_size;
+	int current = 0;
+	int percent = 0;
 	do {
 		inFile.read((char*) this->buff, sizeof(buff));
 		if (inFile.gcount() > 0) {
 			this->emit(this->buff, inFile.gcount());
 		}
-		cout << inFile.gcount() << "\n";
+		current += inFile.gcount();
+
+
+		if ((int) (((float) current / total) * 100.0) > percent) {
+			cout << current << "/" << total << "(" << percent << "%)\n";
+		}
+		percent = ((float) current / total) * 100.0;
 	} while (inFile.gcount() > 0);
 	inFile.close();
 

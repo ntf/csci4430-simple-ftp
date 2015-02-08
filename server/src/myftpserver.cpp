@@ -169,6 +169,8 @@ void ConnectionHandler::loop() {
 					 for (std::vector<int>::size_type i = 0; i != tokens.size(); i++) {
 					 cout << tokens[i] << "\n";
 					 }*/
+					cout << "user input:" << tokens[0] << " " << tokens[1]
+							<< "\n";
 					if (instance->credentials.count(tokens[0]) == 1) {
 						if (instance->credentials[tokens[0]] == tokens[1]) {
 							res->status = 1;
@@ -218,8 +220,9 @@ void ConnectionHandler::loop() {
 
 					res->type = Protocols::GET_REPLY;
 					res->length = 12;
-					if (strncmp(resolved_path, repository, strlen(repository))
-							== 0) {
+					if (resolved_path != NULL && repository != NULL
+							&& strncmp(resolved_path, repository,
+									strlen(repository)) == 0) {
 						res->status = 1;
 					} else {
 						res->status = 0;
@@ -234,12 +237,22 @@ void ConnectionHandler::loop() {
 						res->status = 1;
 						this->emit(res, sizeof(struct message_s));
 						ifstream inFile(resolved_path, ios::binary | ios::in);
+						int total = st.st_size;
+						int current = 0;
+						int percent = 0;
 						do {
 							inFile.read((char*) this->buff, sizeof(buff));
 							if (inFile.gcount() > 0) {
 								this->emit(this->buff, inFile.gcount());
 							}
-							cout << inFile.gcount() << "\n";
+							current += inFile.gcount();
+
+							if ((int) (((float) current / total) * 100.0)
+									> percent) {
+								cout << current << "/" << total << "("
+										<< percent << "%)\n";
+							}
+							percent = ((float) current / total) * 100.0;
 						} while (inFile.gcount() > 0);
 
 						inFile.close();
@@ -262,9 +275,30 @@ void ConnectionHandler::loop() {
 							Protocols::FILE_DATA);
 					ofstream outFile(putFile.c_str());
 					if (file_data->length > 12) {
-						char* data = this->readPayload(
-								file_data->length - sizeof(struct message_s));
-						outFile.write(data, file_data->length - 12);
+						/*		char* data = this->readPayload(
+						 file_data->length - sizeof(struct message_s));
+						 */
+						int remains = file_data->length - 12;
+						int total = remains;
+						int current = 0;
+						int percent = 0;
+						while (remains > 0) {
+							int size = this->receive(this->buff,
+									remains < sizeof(this->buff) ?
+											remains : sizeof(this->buff));
+							outFile.write(this->buff, size);
+							remains -= size;
+							current = total - remains;
+							if ((int) (((float) current / total) * 100.0)
+									> percent) {
+								cout << current << "/" << total << "("
+										<< percent << "%)\n";
+							}
+							percent = ((float) current / total) * 100.0;
+
+						}
+
+						//	outFile.write(data, file_data->length - 12);
 					} else {
 						outFile.write(NULL, 0);
 					}

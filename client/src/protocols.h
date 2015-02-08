@@ -28,7 +28,7 @@ public:
 	static const unsigned char CONNECTED = 0x02;
 	static const unsigned char AUTHED = 0x03;
 
-	char buff[1024];
+	char buff[5122880];
 	ConnectionHandler(int sd, struct sockaddr_in address);
 	ConnectionHandler();
 	void virtual loop();
