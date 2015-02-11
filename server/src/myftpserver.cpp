@@ -154,6 +154,9 @@ void ConnectionHandler::loop() {
 			switch (req->type) {
 			case Protocols::OPEN_CONN_REQUEST:
 				if (this->state == ConnectionHandler::INITIAL) {
+					if (req->length != 12) {
+						throw Exceptions::PROTOCOL_INVALID_SIZE;
+					}
 					res->type = Protocols::OPEN_CONN_REPLY;
 					res->length = 12;
 					res->status = 1;
@@ -189,6 +192,9 @@ void ConnectionHandler::loop() {
 				break;
 			case Protocols::LIST_REQUEST:
 				if (this->state == ConnectionHandler::AUTHED) {
+					if (req->length != 12) {
+						throw Exceptions::PROTOCOL_INVALID_SIZE;
+					}
 					DIR *dir;
 					string data;
 					struct dirent *ent;
@@ -323,6 +329,9 @@ void ConnectionHandler::loop() {
 
 				break;
 			case Protocols::QUIT_REQUEST:
+				if (req->length != 12) {
+					throw Exceptions::PROTOCOL_INVALID_SIZE;
+				}
 				res->type = Protocols::QUIT_REPLY;
 				res->length = 12;
 				res->status = 1;

@@ -63,6 +63,9 @@ void Client::OPEN_CONN_REQUEST(struct message_s* req,
 
 	//Protocols::OPEN_CONN_REPLY
 	struct message_s* res = this->readHeader(Protocols::OPEN_CONN_REPLY);
+	if(res->length != 12){
+		throw Exceptions::PROTOCOL_INVALID_SIZE;
+	}
 	if (res->status == 1) {
 		cout << "Server connection accepted.\n";
 		this->setState(Client::CONNECTED);
@@ -83,6 +86,9 @@ void Client::AUTH_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	this->emit(payload, strlen(payload) + 1);
 	//Protocols::AUTH_REPLY
 	struct message_s* res = this->readHeader(Protocols::AUTH_REPLY);
+	if(res->length != 12){
+		throw Exceptions::PROTOCOL_INVALID_SIZE;
+	}
 	if (res->status == 1) {
 		cout << "Authentication granted.\n";
 		this->username = tokens[1].size();
@@ -122,8 +128,12 @@ void Client::GET_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	this->emit(payload, strlen(payload) + 1);
 
 	struct message_s* res = this->readHeader(Protocols::GET_REPLY);
+	if(res->length != 12){
+		throw Exceptions::PROTOCOL_INVALID_SIZE;
+	}
 	if (res->status == 1) {
 		struct message_s* fileHeader = this->readHeader(Protocols::FILE_DATA);
+
 		ofstream outFile(tokens[1].c_str());
 		if (fileHeader->length > 12) {
 			int remains = fileHeader->length - 12;
@@ -189,7 +199,9 @@ void Client::PUT_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	this->emit(payload, strlen(payload) + 1);
 
 	struct message_s* res = this->readHeader(Protocols::PUT_REPLY);
-
+	if(res->length != 12){
+		throw Exceptions::PROTOCOL_INVALID_SIZE;
+	}
 	req->type = Protocols::FILE_DATA;
 	struct stat st;
 	stat(resolved_path, &st);
@@ -223,6 +235,9 @@ void Client::QUIT_REQUEST(struct message_s* req, std::vector<string> tokens) {
 	this->emit(req, sizeof(struct message_s));
 
 	struct message_s* res = this->readHeader(Protocols::QUIT_REPLY);
+	if(res->length != 12){
+		throw Exceptions::PROTOCOL_INVALID_SIZE;
+	}
 	cout << "Thank you.\n";
 	close(sd);
 	free(res);
