@@ -140,11 +140,7 @@ void ConnectionHandler::loop() {
 			struct message_s* req = this->readHeader(Protocols::ANY);
 			this->log("new command\n");
 			char* payload = NULL;
-			if (req->length > 12) {
-				payload = this->readPayload(
-						req->length - sizeof(struct message_s));
-				//this->log("read payload");
-			} else if (req->length < 12) {
+			if (req->length < 12) {
 				//wrong length field
 				throw Exceptions::PROTOCOL_INVALID_SIZE;
 			}
@@ -168,6 +164,15 @@ void ConnectionHandler::loop() {
 				break;
 			case Protocols::AUTH_REQUEST:
 				if (this->state == ConnectionHandler::CONNECTED) {
+					if (req->length <= 13) {
+						throw Exceptions::PROTOCOL_INVALID_SIZE;
+					}
+					payload = this->readPayload(
+							req->length - sizeof(struct message_s));
+
+					if(payload == NULL){
+						throw Exceptions::PROTOCOL_INVALID_SIZE;
+					}
 					std::vector<string> tokens = explode(string(payload), ' ');
 					//std::map<std::string, std::string> credentials;
 					res->type = Protocols::AUTH_REPLY;
@@ -227,6 +232,16 @@ void ConnectionHandler::loop() {
 				if (this->state == ConnectionHandler::AUTHED) {
 					char* repository, *resolved_path;
 					repository = realpath("filedir/", NULL);
+					if (req->length <= 13) {
+						throw Exceptions::PROTOCOL_INVALID_SIZE;
+					}
+					payload = this->readPayload(
+							req->length - sizeof(struct message_s));
+
+					if(payload == NULL){
+						throw Exceptions::PROTOCOL_INVALID_SIZE;
+					}
+
 					resolved_path =
 							realpath(
 									string(string("filedir/") + string(payload)).c_str(),
@@ -280,6 +295,15 @@ void ConnectionHandler::loop() {
 			case Protocols::PUT_REQUEST:
 
 				if (this->state == ConnectionHandler::AUTHED) {
+					if (req->length <= 13) {
+						throw Exceptions::PROTOCOL_INVALID_SIZE;
+					}
+					payload = this->readPayload(
+							req->length - sizeof(struct message_s));
+
+					if(payload == NULL){
+						throw Exceptions::PROTOCOL_INVALID_SIZE;
+					}
 					string putFile = string(realpath(string("filedir/").c_str(),
 					NULL)) + "/" + string(payload);
 
