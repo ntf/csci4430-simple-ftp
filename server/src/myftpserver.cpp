@@ -130,7 +130,7 @@ void Server::loop() {
 }
 
 void ConnectionHandler::loop() {
-	printf("test\n");
+
 	struct message_s* res = new struct message_s;
 	memcpy(res->protocol, this->protocol, 6);
 	struct message_s* req = NULL;
@@ -144,8 +144,11 @@ void ConnectionHandler::loop() {
 				payload = this->readPayload(
 						req->length - sizeof(struct message_s));
 				//this->log("read payload");
+			} else if (req->length < 12) {
+				//wrong length field
+				throw Exceptions::PROTOCOL_INVALID_SIZE;
 			}
-			this->log(payload);
+			//this->log(payload);
 			//printf("after read header\n");
 
 			switch (req->type) {
@@ -156,6 +159,8 @@ void ConnectionHandler::loop() {
 					res->status = 1;
 					this->emit(res, sizeof(struct message_s));
 					this->state = ConnectionHandler::CONNECTED;
+				} else {
+					throw Exceptions::UNEXPECTED_TYPE;
 				}
 				break;
 			case Protocols::AUTH_REQUEST:
@@ -178,6 +183,8 @@ void ConnectionHandler::loop() {
 						}
 					}
 					this->emit(res, sizeof(struct message_s));
+				} else {
+					throw Exceptions::UNEXPECTED_TYPE;
 				}
 				break;
 			case Protocols::LIST_REQUEST:
@@ -206,6 +213,8 @@ void ConnectionHandler::loop() {
 					res->status = 0;
 					this->emit(res, sizeof(struct message_s));
 					this->emit(data.c_str(), data.size() + 1);
+				} else {
+					throw Exceptions::UNEXPECTED_TYPE;
 				}
 				break;
 			case Protocols::GET_REQUEST:
@@ -258,6 +267,8 @@ void ConnectionHandler::loop() {
 						inFile.close();
 					}
 					//this->emit(data.c_str(), data.size());
+				} else {
+					throw Exceptions::UNEXPECTED_TYPE;
 				}
 				break;
 			case Protocols::PUT_REQUEST:
@@ -306,6 +317,8 @@ void ConnectionHandler::loop() {
 					cout << "write " << file_data->length - 12 << "bytes to "
 							<< putFile << "\n";
 					outFile.close();
+				} else {
+					throw Exceptions::UNEXPECTED_TYPE;
 				}
 
 				break;
@@ -320,13 +333,25 @@ void ConnectionHandler::loop() {
 				this->terminate();
 				return;
 				break;
+			default:
+				throw Exceptions::UNEXPECTED_TYPE;
 			}
 
 		} catch (int ex) {
 			switch (ex) {
 			case Exceptions::PROTOCOL_NOT_MATCHED:
-				this->log("[ERROR] unknown protocol\n");
-				break;
+				this->log("[Unexpected message] unknown protocol\n");
+				this->terminate();
+				return;
+			case Exceptions::UNEXPECTED_TYPE:
+				this->log(
+						"[Unexpected message] unknown protocol message type\n");
+				this->terminate();
+				return;
+			case Exceptions::PROTOCOL_INVALID_SIZE:
+				this->log("[Unexpected message] wrong length field\n");
+				this->terminate();
+				return;
 			case Exceptions::SOCKET_RECV_ERROR:
 			case Exceptions::SOCKET_SEND_ERROR:
 			case Exceptions::SOCKET_DISCONNECTED:

@@ -207,7 +207,6 @@ void Client::PUT_REQUEST(struct message_s* req, std::vector<string> tokens) {
 		}
 		current += inFile.gcount();
 
-
 		if ((int) (((float) current / total) * 100.0) > percent) {
 			cout << current << "/" << total << "(" << percent << "%)\n";
 		}
@@ -266,6 +265,7 @@ void Client::impl(struct message_s* req, std::vector<string> tokens) {
 		}
 	}
 
+	//throw Exceptions::UNEXPECTED_TYPE;
 	this->log("[ERROR] unexpected command\n");
 }
 void Client::loop() {
@@ -289,17 +289,32 @@ void Client::loop() {
 		} catch (int e) {
 			switch (e) {
 			case Exceptions::PROTOCOL_NOT_MATCHED:
-				this->log("[ERROR] unknown protocol\n");
-				break;
+				this->log("[Unexpected message] unknown protocol\n");
+				this->state = Client::INITIAL;
+				close(this->sd);
+				exit(0);
+				return;
 			case Exceptions::UNEXPECTED_TYPE:
-				this->log("[ERROR] unexpected type\n");
-				break;
+				this->log(
+						"[Unexpected message] unknown protocol message type\n");
+				this->state = Client::INITIAL;
+				close(this->sd);
+				exit(0);
+				return;
+			case Exceptions::PROTOCOL_INVALID_SIZE:
+				this->log("[Unexpected message] wrong length field\n");
+				this->state = Client::INITIAL;
+				close(this->sd);
+				exit(0);
+				return;
+
 			case Exceptions::SOCKET_RECV_ERROR:
 			case Exceptions::SOCKET_SEND_ERROR:
 			case Exceptions::SOCKET_DISCONNECTED:
 				this->log("socket error, disconnected");
 				this->state = Client::INITIAL;
 				close(this->sd);
+				exit(0);
 				return;
 			}
 		}
@@ -310,106 +325,10 @@ void Client::loop() {
 void ConnectionHandler::loop() {
 
 }
-/*
- void ConnectionHandler::loop() {
- printf("test\n");
- while (1) {
- try {
- printf("BEFORE read header\n");
- struct message_s* msg = this->readHeader();
- char* payload = NULL;
- if (msg->length > 12) {
- payload = this->readPayload(
- msg->length - sizeof(struct message_s));
- this->log("read payload");
- }
- printf("after read header\n");
- } catch (int ex) {
- switch (ex) {
- case Exceptions::PROTOCOL_NOT_MATCHED:
- this->log("[ERROR] unknown protocol\n");
- break;
- case Exceptions::SOCKET_RECV_ERROR:
- case Exceptions::SOCKET_SEND_ERROR:
- case Exceptions::SOCKET_DISCONNECTED:
- this->log("disconnected");
- close(this->sd);
- return;
- }
- }
- }
- //msg.protocol = new unsigned char[6] { 0xe3, 'm', 'y', 'f', 't', 'p' };
- //exit(0);
- while (1) {
- char buff[100];
- int len;
- printf("BEFORE RECV\n");
- if ((len = recv(sd, buff, sizeof(buff), 0)) <= 0) {
- //may be client shutdown or lost connection
- printf("receive error: %s (Errno:%d)\n", strerror(errno), errno);
- exit(0);
- }
 
- printf("AFTER RECV\n");
- buff[len] = '\0';
- printf("RECEIVED INFO: ");
- if (strlen(buff) != 0)
- printf("%s\n", buff);
- if (strcmp("exit", buff) == 0) {
- close(sd);
- return;
- break;
- }
- }
- }
- */
 
 int main(int argc, char** argv) {
 	Client c;
 	c.start();
-	/*
-	 int sd = socket(AF_INET, SOCK_STREAM, 0);
-	 struct sockaddr_in server_addr;
-	 memset(&server_addr, 0, sizeof(server_addr));
-	 server_addr.sin_family = AF_INET;
-	 server_addr.sin_addr.s_addr = inet_addr(argv[1]);
-	 server_addr.sin_port = htons(PORT);
-	 if (connect(sd, (struct sockaddr *) &server_addr, sizeof(server_addr))
-	 < 0) {
-	 printf("connection error: %s (Errno:%d)\n", strerror(errno), errno);
-	 exit(0);
-	 }
-	 unsigned char* x = new unsigned char[6] { 0xe3, 'm', 'y', 'f', 't', 'p' };
-	 int counter = 0;
-	 while (1) {
-	 char buff[100];
-	 memset(buff, 0, 100);
-	 struct message_s msg;
-	 scanf("%s", buff);
-
-	 memcpy(&msg.protocol, x, 6);
-	 msg.length = 12 + 4;
-	 msg.status = counter++;
-	 msg.type = 0x00;
-	 printf("set buffer\n");
-	 memcpy(buff, &msg, sizeof(struct message_s));
-	 buff[12] = 'w';
-	 buff[13] = 't';
-	 buff[14] = 'f';
-	 buff[15] = '\0';
-	 //scanf("%s", buff);
-	 //printf("%s\n",buff);
-	 int len;
-	 int send_len = msg.length; //strlen(buff)
-	 if ((len = send(sd, buff, send_len, 0)) <= 0) {
-	 printf("Send Error: %s (Errno:%d)\n", strerror(errno), errno);
-	 exit(0);
-	 }
-	 if (strcmp(buff, "exit") == 0) {
-	 close(sd);
-	 break;
-	 }
-	 }
-	 */
 	return 0;
 }
